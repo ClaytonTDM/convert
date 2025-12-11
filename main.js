@@ -16,7 +16,7 @@ const handlers = [
   handler_html2canvas
 ];
 
-let selectedFile;
+let selectedFiles;
 
 const fileInput = document.querySelector("#file-input");
 const fileSelectArea = document.querySelector("#file-area");
@@ -49,26 +49,35 @@ window.selectFile = function () {
 
 const fileSelectHandler = function (event) {
 
-  let file;
+  let files;
 
   if ("dataTransfer" in event) {
-    const item = event.dataTransfer?.items?.[0];
-    if (item.kind !== "file") return;
+    let items = event.dataTransfer?.items;
+    if (!items) return;
+    items = Array.from(items).filter(c => c.kind === "file");
+    if (!items.length) return;
     event.preventDefault();
-    file = item.getAsFile();
+    files = items.map(c => c.getAsFile());
   } else {
-    file = event.target.files?.[0];
+    files = event.target.files;
   }
 
-  if (!file) return;
-  selectedFile = file;
+  if (!files) return;
+  if (files.some(c => c.type !== files[0].type)) {
+    return alert("All input files must be of the same type.");
+  }
+  files.sort((a, b) => a.name === b.name ? 0 : (a.name < b.name ? -1 : 1));
+  selectedFiles = files;
 
-  fileSelectArea.innerHTML = `<h2>${file.name}</h2>`;
+  fileSelectArea.innerHTML = `<h2>
+    ${files[0].name}
+    ${files.length > 1 ? `<br>... and ${files.length - 1} more` : ""}
+  </h2>`;
 
-  let mimeType = file.type;
+  let mimeType = files[0].type;
   if (mimeType === "image/x-icon") mimeType = "image/vnd.microsoft.icon";
 
-  const fileExtension = file.name.split(".").pop();
+  const fileExtension = files[0].name.split(".").pop();
 
   inputSearch.value = mimeType || fileExtension;
   searchHandler({ target: inputSearch });
@@ -203,7 +212,7 @@ async function attemptConvertPath (file, path) {
   for (let i = 0; i < path.length - 1; i ++) {
     try {
       file = await path[i + 1].handler.doConvert(file, path[i].format, path[i + 1].format);
-      if (!file.bytes.length) throw "Output is empty.";
+      if (file.some(c => !c.bytes.length)) throw "Output is empty.";
     } catch (e) {
       console.log(path.map(c => c.format.format));
       console.error(path[i + 1].handler.name, `${path[i].format.format} -> ${path[i + 1].format.format}`, e);
@@ -266,9 +275,9 @@ async function buildConvertPath (file, target, queue) {
 
 window.convertSelection = async function () {
 
-  const inputFile = selectedFile;
+  const inputFiles = selectedFiles;
 
-  if (!inputFile) {
+  if (!inputFiles) {
     return alert("Select an input file.");
   }
 
@@ -283,10 +292,12 @@ window.convertSelection = async function () {
 
   try {
 
-    const inputBuffer = await inputFile.arrayBuffer();
-    const inputBytes = new Uint8Array(inputBuffer);
-
-    const inputFileData = { name: inputFile.name, bytes: inputBytes };
+    const inputFileData = [];
+    for (const inputFile of inputFiles) {
+      const inputBuffer = await inputFile.arrayBuffer();
+      const inputBytes = new Uint8Array(inputBuffer);
+      inputFileData.push({ name: inputFile.name, bytes: inputBytes });
+    }
 
     showPopup("<h2>Finding conversion route...</h2>");
 
@@ -295,11 +306,14 @@ window.convertSelection = async function () {
 
     const outputFormat = outputOption.format;
 
-    const blob = new Blob([output.file.bytes], { type: outputFormat.mime });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = output.file.name;
-    link.click();
+    const outputFiles = Array.isArray(output.file) ? output.file : [output.file];
+    for (const file of outputFiles) {
+      const blob = new Blob([file.bytes], { type: outputFormat.mime });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = file.name;
+      link.click();
+    }
 
     alert(
       `Converted ${inputOption.format.format} to ${outputOption.format.format}!\n` +
@@ -309,6 +323,7 @@ window.convertSelection = async function () {
   } catch (e) {
 
     alert("Unexpected error while routing:\n" + e);
+    console.error(e);
 
   }
 

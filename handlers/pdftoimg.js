@@ -45,19 +45,29 @@ function base64ToBytes (base64) {
 
 async function doConvert (inputFile, inputFormat, outputFormat) {
 
+  if (Array.isArray(inputFile)) {
+    const promises = inputFile.map(f => doConvert(f, inputFormat, outputFormat));
+    return (await Promise.all(promises)).flat();
+  }
+
   const blob = new Blob([inputFile.bytes], { type: inputFormat.mime });
   const url = URL.createObjectURL(blob);
 
-  const image = await pdfToImg(url, {
+  const images = await pdfToImg(url, {
     imgType: outputFormat.format,
-    pages: "firstPage"
+    pages: "all"
   });
 
-  const base64 = image.slice(image.indexOf(";base64,") + 8);
-  const bytes = base64ToBytes(base64);
-  const name = inputFile.name.split(".")[0] + "." + outputFormat.extension;
+  const baseName = inputFile.name.split(".")[0];
 
-  return { bytes, name };
+  const files = [];
+  for (let i = 0; i < images.length; i ++) {
+    const base64 = images[i].slice(images[i].indexOf(";base64,") + 8);
+    const bytes = base64ToBytes(base64);
+    const name = `${baseName}_${i}.${outputFormat.extension}`;
+    files.push({ bytes, name });
+  }
+  return files;
 
 }
 

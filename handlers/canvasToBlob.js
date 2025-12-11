@@ -55,6 +55,11 @@ async function init () {
 
 async function doConvert (inputFile, inputFormat, outputFormat) {
 
+  if (Array.isArray(inputFile)) {
+    const promises = inputFile.map(f => doConvert(f, inputFormat, outputFormat));
+    return (await Promise.all(promises)).flat();
+  }
+
   if (inputFormat.mime === "text/plain") {
 
     const font = "48px sans-serif";
@@ -98,7 +103,7 @@ async function doConvert (inputFile, inputFormat, outputFormat) {
   });
   const name = inputFile.name.split(".")[0] + "." + outputFormat.extension;
 
-  return { bytes, name };
+  return [{ bytes, name }];
 
 }
 

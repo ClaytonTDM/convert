@@ -89,30 +89,35 @@ async function init () {
 
 }
 
-async function doConvert (inputFile, inputFormat, outputFormat, retryWithArgs = null) {
+async function doConvert (inputFiles, inputFormat, outputFormat, retryWithArgs = null) {
 
-  const command = ["convert", inputFile.name];
+  const command = ["convert", ...(inputFiles.map(c => c.name))];
   if (retryWithArgs) command.push(...retryWithArgs);
-  command.push(`${outputFormat.internal}:out`);
 
-  const image = { name: inputFile.name, content: new Uint8Array(inputFile.bytes) };
-  const result = await Magick.call([image], command);
+  const baseName = inputFiles[0].name.split(".")[0];
+  command.push(`${outputFormat.internal}:${baseName}.${outputFormat.extension}`);
+
+  const images = inputFiles.map(file => ({
+    name: file.name,
+    content: new Uint8Array(file.bytes)
+  }));
+  const result = await Magick.call(images, command);
 
   if (result.exitCode !== 0) {
 
     if (!retryWithArgs) {
       if (result.stderr[0].includes("WidthOrHeightExceedsLimit")) {
-        return await doConvert(inputFile, inputFormat, outputFormat, ["-resize", "256x256"]);
+        return await doConvert(inputFiles, inputFormat, outputFormat, ["-resize", "256x256"]);
       }
     }
 
     throw result.stderr.join("\n");
   }
 
-  const bytes = result.outputFiles[0].buffer;
-  const name = inputFile.name.split(".")[0] + "." + outputFormat.extension;
-
-  return { bytes, name };
+  return result.outputFiles.map(file => ({
+    bytes: file.buffer,
+    name: file.name
+  }));
 
 }
 

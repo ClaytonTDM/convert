@@ -59,6 +59,11 @@ async function init () {
 
 async function doConvert (inputFile, inputFormat, outputFormat) {
 
+  if (Array.isArray(inputFile)) {
+    const promises = inputFile.map(f => doConvert(f, inputFormat, outputFormat));
+    return (await Promise.all(promises)).flat();
+  }
+
   if (inputFormat.format === "svgz") throw "Compressed SVG not supported";
 
   const string = new TextDecoder().decode(inputFile.bytes);
@@ -73,7 +78,7 @@ async function doConvert (inputFile, inputFormat, outputFormat) {
   });
   const name = inputFile.name.split(".")[0] + "." + outputFormat.extension;
 
-  return { bytes, name };
+  return [{ bytes, name }];
 
 }
 

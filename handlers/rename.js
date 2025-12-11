@@ -111,7 +111,7 @@ const supportedFormats = [
     name: "Java Archive",
     format: "jar",
     extension: "jar",
-    mime: "application/java-archive",
+    mime: "application/x-java-archive",
     from: true,
     to: false,
     internal: "jar"
@@ -132,8 +132,10 @@ async function init () {
 }
 
 async function doConvert (inputFile, inputFormat, outputFormat) {
-  inputFile.name = inputFile.name.split(".")[0] + "." + outputFormat.extension;
-  return inputFile;
+  return inputFile.map(file => {
+    file.name = file.name.split(".")[0] + "." + outputFormat.extension;
+    return file;
+  });
 }
 
 export default {
