@@ -28,17 +28,65 @@ class FFmpegHandler implements FormatHandler {
     return this.#stdout;
   }
 
+  async loadFFmpeg () {
+    if (!this.#ffmpeg) return;
+    return await this.#ffmpeg.load({
+      coreURL: "/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js"
+    });
+  }
+  terminateFFmpeg () {
+    if (!this.#ffmpeg) return;
+    this.#ffmpeg.terminate();
+  }
+  async reloadFFmpeg () {
+    if (!this.#ffmpeg) return;
+    this.terminateFFmpeg();
+    await this.loadFFmpeg();
+  }
+  /**
+   * FFmpeg tends to run out of memory (?) with an "index out of bounds"
+   * message sometimes. Other times it just stalls, irrespective of any timeout.
+   *
+   * This wrapper restarts FFmpeg when it crashes with that OOB error, and
+   * forces a Promise-level timeout as a fallback for when it stalls.
+   * @param args CLI arguments, same as in `FFmpeg.exec()`.
+   * @param timeout Max execution time in milliseconds. `-1` for no timeout (default).
+   * @param attempts Amount of times to attempt execution. Default is 1.
+   */
+  async execSafe (args: string[], timeout: number = -1, attempts: number = 1): Promise<void> {
+    if (!this.#ffmpeg) throw "Handler not initialized.";
+    try {
+      if (timeout === -1) {
+        await this.#ffmpeg.exec(args);
+      } else {
+        await Promise.race([
+          this.#ffmpeg.exec(args, timeout),
+          new Promise((_, reject) => setTimeout(reject, timeout))
+        ]);
+      }
+    } catch (e) {
+      if (!e || (
+        typeof e === "string"
+        && e.includes("index out of bounds")
+        && attempts > 1
+      )) {
+        await this.reloadFFmpeg();
+        return await this.execSafe(args, timeout, attempts - 1);
+      }
+      console.error(e);
+      throw e;
+    }
+  }
+
   async init () {
 
     this.#ffmpeg = new FFmpeg();
-    await this.#ffmpeg.load({
-      coreURL: "/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js",
-    });
+    await this.loadFFmpeg();
 
     const getMuxerDetails = async (muxer: string) => {
 
       const stdout = await this.getStdout(async () => {
-        await this.#ffmpeg!.exec(["-hide_banner", "-h", "muxer=" + muxer]);
+        await this.execSafe(["-hide_banner", "-h", "muxer=" + muxer], 3000, 5);
       });
 
       return {
@@ -48,7 +96,7 @@ class FFmpegHandler implements FormatHandler {
     }
 
     const stdout = await this.getStdout(async () => {
-      await this.#ffmpeg!.exec(["-formats", "-hide_banner"]);
+      await this.execSafe(["-formats", "-hide_banner"], 3000, 5);
     });
     const lines = stdout.split(" --\n")[1].split("\n");
 
@@ -78,7 +126,7 @@ class FFmpegHandler implements FormatHandler {
           const details = await getMuxerDetails(primaryFormat);
           extension = details.extension;
           mimeType = details.mimeType;
-        } catch {
+        } catch (e) {
           extension = format;
           mimeType = mime.getType(format) || ("video/" + format);
         }
@@ -127,7 +175,7 @@ class FFmpegHandler implements FormatHandler {
       throw "Handler not initialized.";
     }
 
-    await this.#ffmpeg.load();
+    await this.reloadFFmpeg();
 
     for (const file of inputFiles) {
       await this.#ffmpeg.writeFile(file.name, new Uint8Array(file.bytes));
@@ -174,7 +222,6 @@ class FFmpegHandler implements FormatHandler {
     }
 
     await this.#ffmpeg.deleteFile("output");
-    this.#ffmpeg.terminate();
 
     const baseName = inputFiles[0].name.split(".")[0];
     const name = baseName + "." + outputFormat.extension;
